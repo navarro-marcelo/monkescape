@@ -30,12 +30,35 @@
     font-size: 12px;
     margin-top: 8px;
   }
+  #joystick-area {
+    display: none;
+    width: 200px;
+    height: 200px;
+    position: relative;
+    margin-top: 10px;
+    border-radius: 50%;
+    border: 2px solid #0a0;
+    background: rgba(0, 40, 0, 0.3);
+    flex-shrink: 0;
+  }
+  #joystick-knob {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: rgba(0, 255, 0, 0.35);
+    border: 2px solid rgba(0, 255, 0, 0.6);
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
 
 <canvas id="game"></canvas>
-<div id="info">ARROWS / WASD: MOVE &mdash; MOBILE: TOUCH &amp; DRAG</div>
+<div id="joystick-area"><div id="joystick-knob"></div></div>
+<div id="info">ARROWS / WASD: MOVE</div>
 
 <script>
 // ============================================================
@@ -46,13 +69,15 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = 1440, H = 960;
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 canvas.width = W;
 canvas.height = H;
 
-// Scale canvas to fit screen
+// Scale canvas to fit screen (leave room for joystick on mobile)
 function fitCanvas() {
+  const joyH = isTouchDevice ? 220 : 30;
   const scaleX = window.innerWidth / W;
-  const scaleY = (window.innerHeight - 30) / H;
+  const scaleY = (window.innerHeight - joyH) / H;
   const s = Math.min(scaleX, scaleY, 1);
   canvas.style.width = Math.floor(W * s) + 'px';
   canvas.style.height = Math.floor(H * s) + 'px';
@@ -322,46 +347,83 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
-// --- Touch / Virtual joystick ---
-const touch = { active: false, startX: 0, startY: 0, dx: 0, dy: 0 };
-const JOYSTICK_DEAD = 15;  // dead zone radius in screen pixels
-const JOYSTICK_MAX = 70;   // max radius for full tilt
+// --- Touch / Virtual joystick (fixed element below canvas) ---
+const touch = { active: false, dx: 0, dy: 0 };
+const JOYSTICK_DEAD = 10;
+const JOYSTICK_MAX = 80;
+const joyArea = document.getElementById('joystick-area');
+const joyKnob = document.getElementById('joystick-knob');
+let joyCenterX = 0, joyCenterY = 0;
 
+if (isTouchDevice) {
+  joyArea.style.display = 'block';
+  document.getElementById('info').textContent = 'DRAG JOYSTICK TO MOVE';
+}
+
+function updateJoyCenter() {
+  const rect = joyArea.getBoundingClientRect();
+  joyCenterX = rect.left + rect.width / 2;
+  joyCenterY = rect.top + rect.height / 2;
+}
+
+// Tap on canvas to start/restart
 canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  if (state === STATE.TITLE || state === STATE.GAMEOVER) startGame();
+}, { passive: false });
+
+// Joystick touch events
+joyArea.addEventListener('touchstart', e => {
   e.preventDefault();
   initAudio();
   if (state === STATE.TITLE || state === STATE.GAMEOVER) {
     startGame();
     return;
   }
-  const t = e.changedTouches[0];
+  updateJoyCenter();
   touch.active = true;
-  touch.startX = t.clientX;
-  touch.startY = t.clientY;
-  touch.dx = 0;
-  touch.dy = 0;
+  handleJoyTouch(e.changedTouches[0]);
 }, { passive: false });
 
-canvas.addEventListener('touchmove', e => {
+joyArea.addEventListener('touchmove', e => {
   e.preventDefault();
   if (!touch.active) return;
-  const t = e.changedTouches[0];
-  touch.dx = t.clientX - touch.startX;
-  touch.dy = t.clientY - touch.startY;
+  handleJoyTouch(e.changedTouches[0]);
 }, { passive: false });
 
-canvas.addEventListener('touchend', e => {
+joyArea.addEventListener('touchend', e => {
   e.preventDefault();
   touch.active = false;
   touch.dx = 0;
   touch.dy = 0;
+  joyKnob.style.transform = 'translate(-50%, -50%)';
 }, { passive: false });
 
-canvas.addEventListener('touchcancel', e => {
+joyArea.addEventListener('touchcancel', e => {
   touch.active = false;
   touch.dx = 0;
   touch.dy = 0;
+  joyKnob.style.transform = 'translate(-50%, -50%)';
 });
+
+function handleJoyTouch(t) {
+  let dx = t.clientX - joyCenterX;
+  let dy = t.clientY - joyCenterY;
+  const dist = Math.hypot(dx, dy);
+  const clamped = Math.min(dist, JOYSTICK_MAX);
+
+  if (dist > 0) {
+    dx = (dx / dist) * clamped;
+    dy = (dy / dist) * clamped;
+  }
+
+  touch.dx = dx;
+  touch.dy = dy;
+
+  // Move visual knob
+  joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
 
 // --- Game functions ---
 
@@ -669,47 +731,10 @@ function draw() {
   // HUD
   drawHUD();
 
-  // Virtual joystick overlay
-  if (touch.active && state === STATE.PLAYING) {
-    drawJoystick();
-  }
-
   // Game over overlay
   if (state === STATE.GAMEOVER) {
     drawGameOver();
   }
-}
-
-function drawJoystick() {
-  // Convert screen coords to canvas coords
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width;
-  const scaleY = H / rect.height;
-  const cx = touch.startX * scaleX;
-  const cy = touch.startY * scaleY;
-  const joyR = JOYSTICK_MAX * Math.max(scaleX, scaleY);
-
-  // Base circle
-  ctx.beginPath();
-  ctx.arc(cx, cy, joyR, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  // Knob
-  const dist = Math.hypot(touch.dx, touch.dy);
-  const clampDist = Math.min(dist, JOYSTICK_MAX);
-  const angle = Math.atan2(touch.dy, touch.dx);
-  const knobX = cx + Math.cos(angle) * clampDist * Math.max(scaleX, scaleY);
-  const knobY = cy + Math.sin(angle) * clampDist * Math.max(scaleX, scaleY);
-
-  ctx.beginPath();
-  ctx.arc(knobX, knobY, joyR * 0.35, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
 }
 
 function drawHUD() {
