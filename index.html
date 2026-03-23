@@ -462,11 +462,15 @@ function updateRobots() {
   const predX = clamp(pcx + playerVX * predFrames, ARENA.x + 100, ARENA.x + ARENA.w - 100);
   const predY = clamp(pcy + playerVY * predFrames, ARENA.y + 100, ARENA.y + ARENA.h - 100);
 
-  // Formation radius: tighter near walls
+  // Shrink formation when player is slow/still, expand when running
+  const playerSpeed = Math.hypot(playerVX, playerVY);
+  const speedFactor = clamp(playerSpeed / 3, 0, 1);
+  // Tighter near walls too
   const nearWallX = Math.min(pcx - ARENA.x, ARENA.x + ARENA.w - pcx);
   const nearWallY = Math.min(pcy - ARENA.y, ARENA.y + ARENA.h - pcy);
   const wallFactor = clamp(Math.min(nearWallX, nearWallY) / 350, 0, 1);
-  const radius = 150 + wallFactor * 120;
+  // Radius: 60 (closing in when still) to 270 (spread when running)
+  const radius = 60 + speedFactor * 120 + wallFactor * 90;
 
   // Formation rotates to put one robot blocking the escape direction
   const escapeAngle = Math.atan2(playerVY, playerVX);
