@@ -86,7 +86,7 @@ fitCanvas();
 window.addEventListener('resize', fitCanvas);
 
 const SP = 6; // sprite pixel scale
-const HUD_H = 52; // hud bar height
+const HUD_H = 56; // hud bar height
 
 // --- Sprites ---
 const CHIMP_FRAMES = [
@@ -615,7 +615,7 @@ function updateRobots() {
     const dy = goalY - rcy;
     const dist = Math.hypot(dx, dy);
 
-    // Desired velocity toward goal (10% faster per level)
+    // Desired velocity toward goal (5% faster per level)
     const robotSpeed = ROBOT_BASE_SPEED * Math.pow(1.10, level - 1);
     let desiredVX = 0, desiredVY = 0;
     if (dist > 2) {
@@ -778,36 +778,36 @@ function draw() {
 }
 
 function drawHUD() {
-  // HUD background
-  ctx.fillStyle = '#010';
+  // Background bar
+  ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, HUD_H);
 
   ctx.fillStyle = '#0f0';
   ctx.font = '24px Courier New';
   ctx.textBaseline = 'top';
 
-  // Row 1: Score | Title | Lives
+  // Row 1: Score | MONKESCAPE | Lives
   ctx.textAlign = 'left';
-  ctx.fillText('SCORE: ' + String(score).padStart(6, '0'), 16, 4);
+  ctx.fillText('SCORE: ' + String(score).padStart(6, '0'), 16, 8);
 
   ctx.textAlign = 'center';
-  ctx.fillText('MONKESCAPE', W / 2, 4);
+  ctx.fillText('MONKESCAPE', W / 2, 8);
 
   ctx.textAlign = 'right';
   let livesStr = '';
   for (let i = 0; i < lives; i++) livesStr += '\u2665 ';
-  ctx.fillText('LIVES: ' + livesStr, W - 16, 4);
+  ctx.fillText('LIVES: ' + livesStr, W - 16, 8);
 
   // Row 2: Level | Hi-Score
   ctx.font = '18px Courier New';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#0a0';
-  ctx.fillText('LV.' + level, 16, 30);
+  ctx.fillText('LV.' + level, 16, 34);
 
   if (highScore > 0) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#080';
-    ctx.fillText('HI: ' + String(highScore).padStart(6, '0'), W / 2, 30);
+    ctx.fillText('HI: ' + String(highScore).padStart(6, '0'), W / 2, 34);
   }
 }
 
