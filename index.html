@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MONKESCAPE</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    color: #0f0;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  canvas {
+    image-rendering: pixelated;
+    display: block;
+  }
+  #info {
+    color: #0a0;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div id="info">ARROWS / WASD: MOVE &mdash; ENTER: START</div>
+
+<script>
+// ============================================================
+//  MONKESCAPE - Arcade game (late 70s style)
+// ============================================================
+
+// --- Canvas setup ---
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 1440, H = 960;
+canvas.width = W;
+canvas.height = H;
+
+// Scale canvas to fit screen
+function fitCanvas() {
+  const scaleX = window.innerWidth / W;
+  const scaleY = (window.innerHeight - 30) / H;
+  const s = Math.min(scaleX, scaleY, 1);
+  canvas.style.width = Math.floor(W * s) + 'px';
+  canvas.style.height = Math.floor(H * s) + 'px';
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+
+const SP = 6; // sprite pixel scale
+const HUD_H = 32; // hud bar height
+
+// --- Sprites ---
+const CHIMP_FRAMES = [
+  [ // Frame A
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    ".....1111.......................",
+    "....11...1......................",
+    "...1......1.....................",
+    "...1....111.....................",
+    "....1111............11..........",
+    "......111...........111.........",
+    "........11111111...1111.........",
+    "........1111111111.11111........",
+    ".......11111111111111111........",
+    ".......111111111111111.11.......",
+    ".......111111111111111111.......",
+    "........1111111111111111........",
+    "........111111111111.11.........",
+    "........11..11..11.11...........",
+    "........11..11..11.11...........",
+    "........11..11..11.11...........",
+    ".......111111111111111..........",
+    "................................",
+    "................................",
+    "................................",
+  ],
+  [ // Frame B
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    ".....1111.......................",
+    "....11...1......................",
+    "...1......1.....................",
+    "...1....111.....................",
+    "....1111............11..........",
+    "......111...........111.........",
+    "........11111111...1111.........",
+    "........1111111111.11111........",
+    ".......11111111111111111........",
+    ".......111111111111111.11.......",
+    ".......111111111111111111.......",
+    "........1111111111111111........",
+    "........111111111111.11.........",
+    "........111.....11.11...........",
+    ".......1111.....11..11..........",
+    ".......11.11.....11.11..........",
+    "......111.111....111111.........",
+    "................................",
+    "................................",
+    "................................",
+  ],
+  [ // Frame C
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    ".....1111.......................",
+    "....11...1......................",
+    "...1......1.....................",
+    "...1....111.....................",
+    "....1111............11..........",
+    "......111...........111.........",
+    "........11111111...1111.........",
+    "........1111111111.11111........",
+    ".......11111111111111111........",
+    ".......111111111111111.11.......",
+    ".......111111111111111111.......",
+    "........1111111111111111........",
+    "........111111111111.11.........",
+    "........1111....1111............",
+    "........1111....1111............",
+    "........1111....1111............",
+    ".......111111..111111...........",
+    "................................",
+    "................................",
+    "................................",
+  ],
+  [ // Frame D
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    ".....1111.......................",
+    "....11...1......................",
+    "...1......1.....................",
+    "...1....111.....................",
+    "....1111............11..........",
+    "......111...........111.........",
+    "........11111111...1111.........",
+    "........1111111111.11111........",
+    ".......11111111111111111........",
+    ".......111111111111111.11.......",
+    ".......111111111111111111.......",
+    "........1111111111111111........",
+    "........111111111111.11.........",
+    ".......11..11..11...11..........",
+    ".......11..11..11...11..........",
+    "......11....1111.....11.........",
+    ".....111....1111.....111........",
+    "................................",
+    "................................",
+    "................................",
+  ],
+];
+
+const ROBOT_SPRITE = [
+  "................",
+  "..111111111111..",
+  "..1..........1..",
+  "..1.111..111.1..",
+  "..1.111..111.1..",
+  "..1..........1..",
+  "..1...1111...1..",
+  "..111111111111..",
+  "....11111111....",
+  "...1111111111...",
+  "..11.111111.11..",
+  "..11.111111.11..",
+  "..11.111111.11..",
+  "...1111111111...",
+  "...11......11...",
+  "..1111....1111..",
+];
+
+// Chimp sprite: 32x24, rendered size
+const CHIMP_W = 32 * SP;
+const CHIMP_H = 24 * SP;
+// Robot sprite: 16x16, rendered size
+const ROBOT_W = 16 * SP;
+const ROBOT_H = 16 * SP;
+
+// Hitbox offsets (tighter than visual)
+const CHIMP_HB = { x: 7 * SP, y: 8 * SP, w: 16 * SP, h: 13 * SP };
+const ROBOT_HB = { x: 2 * SP, y: 1 * SP, w: 12 * SP, h: 14 * SP };
+
+// --- Pre-render sprites to offscreen canvases ---
+function prerenderSprite(data, scale, color) {
+  const w = data[0].length, h = data.length;
+  const c = document.createElement('canvas');
+  c.width = w * scale; c.height = h * scale;
+  const cx = c.getContext('2d');
+  cx.fillStyle = color;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (data[y][x] === '1')
+        cx.fillRect(x * scale, y * scale, scale, scale);
+  return c;
+}
+
+// Prerender facing right
+const chimpFramesR = CHIMP_FRAMES.map(f => prerenderSprite(f, SP, '#0f0'));
+// Prerender facing left (mirrored)
+const chimpFramesL = chimpFramesR.map(c => {
+  const mc = document.createElement('canvas');
+  mc.width = c.width; mc.height = c.height;
+  const mx = mc.getContext('2d');
+  mx.translate(mc.width, 0);
+  mx.scale(-1, 1);
+  mx.drawImage(c, 0, 0);
+  return mc;
+});
+const robotImg = prerenderSprite(ROBOT_SPRITE, SP, '#0f0');
+
+// --- Sound engine (Web Audio API) ---
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+}
+
+function playTone(freq, duration, type, vol) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(vol || 0.1, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function sfxScore() {
+  playTone(880, 0.05, 'square', 0.06);
+}
+
+function sfxHit() {
+  playTone(150, 0.3, 'sawtooth', 0.15);
+  setTimeout(() => playTone(80, 0.4, 'square', 0.12), 100);
+}
+
+function sfxGameOver() {
+  const notes = [440, 330, 220, 110];
+  notes.forEach((n, i) => setTimeout(() => playTone(n, 0.3, 'square', 0.12), i * 200));
+}
+
+function sfxStart() {
+  const notes = [330, 440, 550, 660];
+  notes.forEach((n, i) => setTimeout(() => playTone(n, 0.1, 'square', 0.08), i * 80));
+}
+
+function sfxStep() {
+  playTone(60 + Math.random() * 40, 0.03, 'square', 0.02);
+}
+
+// --- Noise generator for ambient hum ---
+function startAmbient() {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(55, audioCtx.currentTime);
+  gain.gain.setValueAtTime(0.008, audioCtx.currentTime);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  return { osc, gain };
+}
+
+// --- Game state ---
+const STATE = { TITLE: 0, PLAYING: 1, HIT: 2, GAMEOVER: 3 };
+let state = STATE.TITLE;
+let score = 0;
+let highScore = 0;
+let lives = 3;
+let scoreTimer = 0;
+let hitTimer = 0;
+let gameOverTimer = 0;
+let ambient = null;
+
+// Arena bounds (inside border)
+const ARENA = { x: 8, y: HUD_H + 8, w: W - 16, h: H - HUD_H - 16 };
+
+// Player
+const player = { x: 0, y: 0, speed: 6.0, facing: 1, frame: 0, frameTimer: 0 };
+
+// Robots
+const ROBOT_SPEED = 2.33;
+const robots = [];
+
+// Input
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Enter' || e.code === 'Space') {
+    if (state === STATE.TITLE || state === STATE.GAMEOVER) startGame();
+  }
+  e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// --- Game functions ---
+
+function startGame() {
+  initAudio();
+  sfxStart();
+  if (!ambient) ambient = startAmbient();
+
+  state = STATE.PLAYING;
+  score = 0;
+  lives = 3;
+  scoreTimer = 0;
+
+  // Center player
+  player.x = ARENA.x + ARENA.w / 2 - CHIMP_W / 2;
+  player.y = ARENA.y + ARENA.h / 2 - CHIMP_H / 2;
+  player.facing = 1;
+  player.frame = 0;
+
+  // Place robots in corners
+  robots.length = 0;
+  const corners = [
+    { x: ARENA.x + 40, y: ARENA.y + 40 },
+    { x: ARENA.x + ARENA.w - ROBOT_W - 40, y: ARENA.y + 40 },
+    { x: ARENA.x + 40, y: ARENA.y + ARENA.h - ROBOT_H - 40 },
+    { x: ARENA.x + ARENA.w - ROBOT_W - 40, y: ARENA.y + ARENA.h - ROBOT_H - 40 },
+  ];
+  corners.forEach(c => robots.push({ x: c.x, y: c.y, vx: 0, vy: 0 }));
+}
+
+function resetAfterHit() {
+  // Move player to center
+  player.x = ARENA.x + ARENA.w / 2 - CHIMP_W / 2;
+  player.y = ARENA.y + ARENA.h / 2 - CHIMP_H / 2;
+
+  // Push robots to corners
+  const corners = [
+    { x: ARENA.x + 40, y: ARENA.y + 40 },
+    { x: ARENA.x + ARENA.w - ROBOT_W - 40, y: ARENA.y + 40 },
+    { x: ARENA.x + 40, y: ARENA.y + ARENA.h - ROBOT_H - 40 },
+    { x: ARENA.x + ARENA.w - ROBOT_W - 40, y: ARENA.y + ARENA.h - ROBOT_H - 40 },
+  ];
+  robots.forEach((r, i) => { r.x = corners[i].x; r.y = corners[i].y; });
+}
+
+function getPlayerInput() {
+  let dx = 0, dy = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) dx = -1;
+  if (keys['ArrowRight'] || keys['KeyD']) dx = 1;
+  if (keys['ArrowUp'] || keys['KeyW']) dy = -1;
+  if (keys['ArrowDown'] || keys['KeyS']) dy = 1;
+  // Normalize diagonal
+  if (dx !== 0 && dy !== 0) {
+    dx *= 0.707;
+    dy *= 0.707;
+  }
+  return { dx, dy };
+}
+
+function checkCollision(ax, ay, ahb, bx, by, bhb) {
+  return ax + ahb.x < bx + bhb.x + bhb.w &&
+         ax + ahb.x + ahb.w > bx + bhb.x &&
+         ay + ahb.y < by + bhb.y + bhb.h &&
+         ay + ahb.y + ahb.h > by + bhb.y;
+}
+
+function clamp(v, min, max) { return v < min ? min : v > max ? max : v; }
+
+// --- Robot AI: chase + surround ---
+function updateRobots() {
+  const pcx = player.x + CHIMP_W / 2;
+  const pcy = player.y + CHIMP_H / 2;
+
+  // Target positions: surround player from 4 directions
+  const spread = 180;
+  const targets = [
+    { x: pcx - spread, y: pcy - spread },
+    { x: pcx + spread, y: pcy - spread },
+    { x: pcx - spread, y: pcy + spread },
+    { x: pcx + spread, y: pcy + spread },
+  ];
+
+  robots.forEach((r, i) => {
+    const rcx = r.x + ROBOT_W / 2;
+    const rcy = r.y + ROBOT_H / 2;
+
+    // Blend between direct chase and surround position
+    const tx = targets[i].x;
+    const ty = targets[i].y;
+
+    // Distance to player
+    const distToPlayer = Math.hypot(pcx - rcx, pcy - rcy);
+
+    // When far, head toward surround position; when close, chase directly
+    const chaseWeight = Math.max(0, 1 - distToPlayer / 500);
+    const goalX = tx * (1 - chaseWeight) + pcx * chaseWeight;
+    const goalY = ty * (1 - chaseWeight) + pcy * chaseWeight;
+
+    const dx = goalX - rcx;
+    const dy = goalY - rcy;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > 2) {
+      const speed = ROBOT_SPEED;
+      r.x += (dx / dist) * speed;
+      r.y += (dy / dist) * speed;
+    }
+
+    // Keep in arena
+    r.x = clamp(r.x, ARENA.x, ARENA.x + ARENA.w - ROBOT_W);
+    r.y = clamp(r.y, ARENA.y, ARENA.y + ARENA.h - ROBOT_H);
+  });
+}
+
+// --- Main update ---
+function update() {
+  if (state === STATE.PLAYING) {
+    const inp = getPlayerInput();
+    const moving = inp.dx !== 0 || inp.dy !== 0;
+
+    player.x += inp.dx * player.speed;
+    player.y += inp.dy * player.speed;
+
+    // Clamp to arena
+    player.x = clamp(player.x, ARENA.x, ARENA.x + ARENA.w - CHIMP_W);
+    player.y = clamp(player.y, ARENA.y, ARENA.y + ARENA.h - CHIMP_H);
+
+    // Facing direction
+    if (inp.dx > 0) player.facing = 1;
+    else if (inp.dx < 0) player.facing = -1;
+
+    // Animation
+    if (moving) {
+      player.frameTimer++;
+      if (player.frameTimer >= 8) {
+        player.frameTimer = 0;
+        player.frame = (player.frame + 1) % 4;
+        if (player.frame === 0 || player.frame === 2) sfxStep();
+      }
+    } else {
+      player.frame = 0;
+      player.frameTimer = 0;
+    }
+
+    // Update robots
+    updateRobots();
+
+    // Check collisions
+    for (const r of robots) {
+      if (checkCollision(player.x, player.y, CHIMP_HB, r.x, r.y, ROBOT_HB)) {
+        lives--;
+        sfxHit();
+        if (lives <= 0) {
+          state = STATE.GAMEOVER;
+          gameOverTimer = 0;
+          sfxGameOver();
+          if (score > highScore) highScore = score;
+        } else {
+          state = STATE.HIT;
+          hitTimer = 0;
+        }
+        break;
+      }
+    }
+
+    // Score: +10 every 30 frames (~0.5s)
+    scoreTimer++;
+    if (scoreTimer >= 30) {
+      scoreTimer = 0;
+      score += 10;
+      sfxScore();
+    }
+
+  } else if (state === STATE.HIT) {
+    hitTimer++;
+    if (hitTimer > 90) { // 1.5s pause
+      state = STATE.PLAYING;
+      resetAfterHit();
+      scoreTimer = 0;
+    }
+  } else if (state === STATE.GAMEOVER) {
+    gameOverTimer++;
+  }
+}
+
+// --- Rendering ---
+function draw() {
+  // Clear
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  if (state === STATE.TITLE) {
+    drawTitle();
+    return;
+  }
+
+  // Arena border
+  ctx.strokeStyle = '#0a0';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ARENA.x - 2, ARENA.y - 2, ARENA.w + 4, ARENA.h + 4);
+
+  // Draw robots
+  robots.forEach(r => {
+    ctx.drawImage(robotImg, Math.round(r.x), Math.round(r.y));
+  });
+
+  // Draw player
+  if (state === STATE.HIT && Math.floor(hitTimer / 6) % 2 === 0) {
+    // Blink on hit
+  } else {
+    const frames = player.facing === 1 ? chimpFramesR : chimpFramesL;
+    ctx.drawImage(frames[player.frame], Math.round(player.x), Math.round(player.y));
+  }
+
+  // HUD
+  drawHUD();
+
+  // Game over overlay
+  if (state === STATE.GAMEOVER) {
+    drawGameOver();
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = '#0f0';
+  ctx.font = '24px Courier New';
+  ctx.textBaseline = 'top';
+
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE: ' + String(score).padStart(6, '0'), 16, 6);
+
+  ctx.textAlign = 'center';
+  ctx.fillText('MONKESCAPE', W / 2, 6);
+
+  ctx.textAlign = 'right';
+  let livesStr = '';
+  for (let i = 0; i < lives; i++) livesStr += '\u2665 ';
+  ctx.fillText('LIVES: ' + livesStr, W - 16, 6);
+
+  // Hi-score
+  if (highScore > 0) {
+    ctx.textAlign = 'center';
+    ctx.font = '16px Courier New';
+    ctx.fillStyle = '#080';
+    ctx.fillText('HI: ' + String(highScore).padStart(6, '0'), W / 2, 28);
+  }
+}
+
+function drawTitle() {
+  ctx.fillStyle = '#0f0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Title
+  ctx.font = '64px Courier New';
+  ctx.fillText('MONKESCAPE', W / 2, H / 2 - 160);
+
+  // Draw chimp and robots
+  const cx = W / 2 - CHIMP_W / 2;
+  const cy = H / 2 - CHIMP_H / 2;
+  ctx.drawImage(chimpFramesR[0], cx, cy);
+  ctx.drawImage(robotImg, cx - 240, cy - 80);
+  ctx.drawImage(robotImg, cx + 240, cy - 80);
+  ctx.drawImage(robotImg, cx - 240, cy + 80);
+  ctx.drawImage(robotImg, cx + 240, cy + 80);
+
+  // Instructions
+  ctx.font = '24px Courier New';
+  ctx.fillText('PRESS ENTER TO START', W / 2, H / 2 + 160);
+
+  ctx.font = '18px Courier New';
+  ctx.fillStyle = '#080';
+  ctx.fillText('ARROWS / WASD: MOVE', W / 2, H / 2 + 220);
+  ctx.fillText('SURVIVE THE ROBOTS!', W / 2, H / 2 + 250);
+
+  if (highScore > 0) {
+    ctx.fillStyle = '#0f0';
+    ctx.font = '20px Courier New';
+    ctx.fillText('HIGH SCORE: ' + String(highScore).padStart(6, '0'), W / 2, H / 2 + 310);
+  }
+
+  // Blink effect
+  if (Math.floor(Date.now() / 500) % 2 === 0) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(W / 2 - 250, H / 2 + 145, 500, 35);
+    ctx.fillStyle = '#0f0';
+    ctx.font = '24px Courier New';
+    ctx.fillText('PRESS ENTER TO START', W / 2, H / 2 + 160);
+  }
+}
+
+function drawGameOver() {
+  // Semi-transparent overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#0f0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = '56px Courier New';
+  ctx.fillText('GAME OVER', W / 2, H / 2 - 60);
+
+  ctx.font = '28px Courier New';
+  ctx.fillText('SCORE: ' + String(score).padStart(6, '0'), W / 2, H / 2 + 10);
+
+  if (score >= highScore && highScore > 0) {
+    ctx.fillStyle = '#0f0';
+    ctx.font = '22px Courier New';
+    ctx.fillText('*** NEW HIGH SCORE ***', W / 2, H / 2 + 50);
+  }
+
+  if (gameOverTimer > 120) {
+    ctx.fillStyle = '#0a0';
+    ctx.font = '22px Courier New';
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      ctx.fillText('PRESS ENTER TO PLAY AGAIN', W / 2, H / 2 + 110);
+    }
+  }
+}
+
+// --- Game loop ---
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+
+</body>
+</html>
