@@ -314,7 +314,7 @@ function startAmbient() {
 }
 
 // --- Game state ---
-const STATE = { TITLE: 0, PLAYING: 1, HIT: 2, GAMEOVER: 3 };
+const STATE = { TITLE: 0, PLAYING: 1, HIT: 2, GAMEOVER: 3, PAUSED: 4 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = 0;
@@ -341,6 +341,10 @@ let playerVX = 0, playerVY = 0;
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.code] = true;
+  if (e.code === 'Space') {
+    if (state === STATE.PLAYING) { state = STATE.PAUSED; return; }
+    if (state === STATE.PAUSED) { state = STATE.PLAYING; return; }
+  }
   if (e.code === 'Enter' || e.code === 'Space') {
     if (state === STATE.TITLE || state === STATE.GAMEOVER) startGame();
   }
@@ -771,7 +775,19 @@ function draw() {
   // HUD
   drawHUD();
 
-  // Game over overlay
+  // Overlays
+  if (state === STATE.PAUSED) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#0f0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '48px Courier New';
+    ctx.fillText('PAUSED', W / 2, H / 2);
+    ctx.font = '20px Courier New';
+    ctx.fillStyle = '#0a0';
+    ctx.fillText('PRESS SPACE TO RESUME', W / 2, H / 2 + 50);
+  }
   if (state === STATE.GAMEOVER) {
     drawGameOver();
   }
