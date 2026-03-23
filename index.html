@@ -331,7 +331,8 @@ const ARENA = { x: 8, y: HUD_H + 8, w: W - 16, h: H - HUD_H - 16 };
 const player = { x: 0, y: 0, speed: 6.0, facing: 1, frame: 0, frameTimer: 0 };
 
 // Robots
-const ROBOT_SPEED = 2.0;
+const ROBOT_BASE_SPEED = 2.0;
+let level = 1;
 const robots = [];
 // Track player velocity for prediction
 let playerVX = 0, playerVY = 0;
@@ -435,6 +436,7 @@ function startGame() {
   state = STATE.PLAYING;
   score = 0;
   lives = 3;
+  level = 1;
   scoreTimer = 0;
 
   // Center player
@@ -613,11 +615,12 @@ function updateRobots() {
     const dy = goalY - rcy;
     const dist = Math.hypot(dx, dy);
 
-    // Desired velocity toward goal
+    // Desired velocity toward goal (5% faster per level)
+    const robotSpeed = ROBOT_BASE_SPEED * Math.pow(1.05, level - 1);
     let desiredVX = 0, desiredVY = 0;
     if (dist > 2) {
-      desiredVX = (dx / dist) * ROBOT_SPEED;
-      desiredVY = (dy / dist) * ROBOT_SPEED;
+      desiredVX = (dx / dist) * robotSpeed;
+      desiredVY = (dy / dist) * robotSpeed;
     }
 
     // Inertia: blend current velocity toward desired (lower = more slide)
@@ -715,6 +718,13 @@ function update() {
       scoreTimer = 0;
       score += 10;
       sfxScore();
+      // Level up every 1000 points
+      const newLevel = Math.floor(score / 1000) + 1;
+      if (newLevel > level) {
+        level = newLevel;
+        playTone(660, 0.15, 'square', 0.1);
+        setTimeout(() => playTone(880, 0.2, 'square', 0.1), 150);
+      }
     }
 
   } else if (state === STATE.HIT) {
@@ -774,7 +784,10 @@ function drawHUD() {
 
   ctx.textAlign = 'left';
   ctx.fillText('SCORE: ' + String(score).padStart(6, '0'), 16, 6);
+  ctx.font = '18px Courier New';
+  ctx.fillText('LV.' + level, 16, 28);
 
+  ctx.font = '24px Courier New';
   ctx.textAlign = 'center';
   ctx.fillText('MONKESCAPE', W / 2, 6);
 
