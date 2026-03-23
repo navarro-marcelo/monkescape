@@ -503,14 +503,32 @@ function updateRobots() {
     used[bestT] = true;
   }
 
-  // Move each robot toward its assigned target
+  // Move each robot toward its assigned target — or attack directly
   robots.forEach((r, i) => {
-    const tgt = assignment[i];
     const rcx = r.x + ROBOT_W / 2;
     const rcy = r.y + ROBOT_H / 2;
 
-    const dx = tgt.x - rcx;
-    const dy = tgt.y - rcy;
+    // Is the player heading toward this robot?
+    const toRobotX = rcx - pcx;
+    const toRobotY = rcy - pcy;
+    const distToPlayer = Math.hypot(toRobotX, toRobotY);
+    // Dot product: positive means player moves toward this robot
+    const dot = playerVX * toRobotX + playerVY * toRobotY;
+    const approaching = dot > 0.5 && playerSpeed > 0.5;
+
+    let goalX, goalY;
+    if (approaching && distToPlayer < radius * 1.5) {
+      // Player is coming at me: hold ground and charge directly at player
+      goalX = pcx;
+      goalY = pcy;
+    } else {
+      // Move to formation position
+      goalX = assignment[i].x;
+      goalY = assignment[i].y;
+    }
+
+    const dx = goalX - rcx;
+    const dy = goalY - rcy;
     const dist = Math.hypot(dx, dy);
 
     if (dist > 2) {
