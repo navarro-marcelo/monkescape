@@ -565,22 +565,33 @@ function updateRobots() {
     used[bestT] = true;
   }
 
-  // Move each robot toward its assigned target — or attack directly
+  // Find which robot is closest to the player
+  let closestIdx = 0, closestDist = Infinity;
+  robots.forEach((r, i) => {
+    const d = Math.hypot(r.x + ROBOT_W / 2 - pcx, r.y + ROBOT_H / 2 - pcy);
+    if (d < closestDist) { closestDist = d; closestIdx = i; }
+  });
+
+  // Move each robot
   robots.forEach((r, i) => {
     const rcx = r.x + ROBOT_W / 2;
     const rcy = r.y + ROBOT_H / 2;
-
-    // Is the player heading toward this robot?
     const toRobotX = rcx - pcx;
     const toRobotY = rcy - pcy;
     const distToPlayer = Math.hypot(toRobotX, toRobotY);
+
     // Dot product: positive means player moves toward this robot
     const dot = playerVX * toRobotX + playerVY * toRobotY;
-    const approaching = dot > 0.5 && playerSpeed > 0.5;
+    const playerApproaching = dot > 0.5 && playerSpeed > 0.5;
 
     let goalX, goalY;
-    if (approaching && distToPlayer < radius * 1.5) {
-      // Player is coming at me: hold ground and charge directly at player
+
+    if (playerApproaching && distToPlayer < radius * 1.5) {
+      // Player charging at me: attack directly
+      goalX = pcx;
+      goalY = pcy;
+    } else if (playerSpeed < 0.3 && i === closestIdx) {
+      // Player is still: closest robot attacks directly
       goalX = pcx;
       goalY = pcy;
     } else {
