@@ -306,8 +306,10 @@ const ARENA = { x: 8, y: HUD_H + 8, w: W - 16, h: H - HUD_H - 16 };
 const player = { x: 0, y: 0, speed: 6.0, facing: 1, frame: 0, frameTimer: 0 };
 
 // Robots
-const ROBOT_SPEED = 2.33;
+const ROBOT_SPEED = 2.0;
 const robots = [];
+// Track player velocity for prediction
+let playerVX = 0, playerVY = 0;
 
 // Input
 const keys = {};
@@ -442,50 +444,110 @@ function checkCollision(ax, ay, ahb, bx, by, bhb) {
 
 function clamp(v, min, max) { return v < min ? min : v > max ? max : v; }
 
-// --- Robot AI: chase + surround ---
+// --- Robot AI: collaborative surround ---
 function updateRobots() {
   const pcx = player.x + CHIMP_W / 2;
   const pcy = player.y + CHIMP_H / 2;
 
-  // Target positions: surround player from 4 directions
-  const spread = 180;
-  const targets = [
-    { x: pcx - spread, y: pcy - spread },
-    { x: pcx + spread, y: pcy - spread },
-    { x: pcx - spread, y: pcy + spread },
-    { x: pcx + spread, y: pcy + spread },
-  ];
+  // Smooth player velocity tracking
+  playerVX = playerVX * 0.7 + (pcx - (player.prevX || pcx)) * 0.3;
+  playerVY = playerVY * 0.7 + (pcy - (player.prevY || pcy)) * 0.3;
+  player.prevX = pcx;
+  player.prevY = pcy;
+
+  // Predict where the player will be (intercept point)
+  const predFrames = 40;
+  const predX = pcx + playerVX * predFrames;
+  const predY = pcy + playerVY * predFrames;
+
+  // Clamp prediction inside arena
+  const tgtX = clamp(predX, ARENA.x + 80, ARENA.x + ARENA.w - 80);
+  const tgtY = clamp(predY, ARENA.y + 80, ARENA.y + ARENA.h - 80);
+
+  // Dynamic formation: 4 cardinal positions around the predicted point
+  // The formation rotates to cut off the player's escape direction
+  const escapeAngle = Math.atan2(playerVY, playerVX);
+  const speed = Math.hypot(playerVX, playerVY);
+
+  // Tighter ring when player is slower or cornered
+  const nearWallX = Math.min(pcx - ARENA.x, ARENA.x + ARENA.w - pcx);
+  const nearWallY = Math.min(pcy - ARENA.y, ARENA.y + ARENA.h - pcy);
+  const wallFactor = Math.min(nearWallX, nearWallY) / 300;
+  const baseRadius = 120 + wallFactor * 140; // tighter near walls
+
+  // Each robot takes a cardinal direction relative to predicted position,
+  // rotated so one robot is always ahead (blocking escape)
+  const formationAngles = [0, 1, 2, 3].map(i =>
+    escapeAngle + Math.PI + (i * Math.PI / 2) + Math.PI / 4
+  );
+
+  // Compute ideal target positions
+  const idealTargets = formationAngles.map(a => ({
+    x: tgtX + Math.cos(a) * baseRadius,
+    y: tgtY + Math.sin(a) * baseRadius,
+  }));
+
+  // Assign robots to targets using nearest-match to avoid crossing paths
+  const assignments = assignTargets(robots, idealTargets);
 
   robots.forEach((r, i) => {
+    const target = assignments[i];
     const rcx = r.x + ROBOT_W / 2;
     const rcy = r.y + ROBOT_H / 2;
 
-    // Blend between direct chase and surround position
-    const tx = targets[i].x;
-    const ty = targets[i].y;
-
-    // Distance to player
-    const distToPlayer = Math.hypot(pcx - rcx, pcy - rcy);
-
-    // When far, head toward surround position; when close, chase directly
-    const chaseWeight = Math.max(0, 1 - distToPlayer / 500);
-    const goalX = tx * (1 - chaseWeight) + pcx * chaseWeight;
-    const goalY = ty * (1 - chaseWeight) + pcy * chaseWeight;
-
-    const dx = goalX - rcx;
-    const dy = goalY - rcy;
+    const dx = target.x - rcx;
+    const dy = target.y - rcy;
     const dist = Math.hypot(dx, dy);
 
+    // Distance to player for urgency
+    const distToPlayer = Math.hypot(pcx - rcx, pcy - rcy);
+
+    // Speed boost when far from formation, slight boost when close to player
+    let spd = ROBOT_SPEED;
+    if (dist > 200) spd *= 1.15; // hustle to get in position
+    if (distToPlayer < 200) spd *= 1.1; // close in for the kill
+
     if (dist > 2) {
-      const speed = ROBOT_SPEED;
-      r.x += (dx / dist) * speed;
-      r.y += (dy / dist) * speed;
+      r.x += (dx / dist) * spd;
+      r.y += (dy / dist) * spd;
     }
 
     // Keep in arena
     r.x = clamp(r.x, ARENA.x, ARENA.x + ARENA.w - ROBOT_W);
     r.y = clamp(r.y, ARENA.y, ARENA.y + ARENA.h - ROBOT_H);
   });
+}
+
+// Greedy nearest-target assignment so robots don't cross paths
+function assignTargets(robots, targets) {
+  const used = new Array(targets.length).fill(false);
+  const result = new Array(robots.length);
+
+  // Sort robots by distance to their nearest target (greediest first)
+  const order = robots.map((r, i) => {
+    const rcx = r.x + ROBOT_W / 2;
+    const rcy = r.y + ROBOT_H / 2;
+    let minD = Infinity;
+    for (let j = 0; j < targets.length; j++) {
+      const d = Math.hypot(targets[j].x - rcx, targets[j].y - rcy);
+      if (d < minD) minD = d;
+    }
+    return { idx: i, minD };
+  }).sort((a, b) => a.minD - b.minD);
+
+  for (const { idx } of order) {
+    const rcx = robots[idx].x + ROBOT_W / 2;
+    const rcy = robots[idx].y + ROBOT_H / 2;
+    let bestJ = 0, bestD = Infinity;
+    for (let j = 0; j < targets.length; j++) {
+      if (used[j]) continue;
+      const d = Math.hypot(targets[j].x - rcx, targets[j].y - rcy);
+      if (d < bestD) { bestD = d; bestJ = j; }
+    }
+    used[bestJ] = true;
+    result[idx] = targets[bestJ];
+  }
+  return result;
 }
 
 // --- Main update ---
