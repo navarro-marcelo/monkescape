@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>MONKESCAPE</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -16,6 +16,10 @@
     justify-content: center;
     min-height: 100vh;
     overflow: hidden;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
   canvas {
     image-rendering: pixelated;
@@ -31,7 +35,7 @@
 <body>
 
 <canvas id="game"></canvas>
-<div id="info">ARROWS / WASD: MOVE &mdash; ENTER: START</div>
+<div id="info">ARROWS / WASD: MOVE &mdash; MOBILE: TOUCH &amp; DRAG</div>
 
 <script>
 // ============================================================
@@ -316,6 +320,47 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
+// --- Touch / Virtual joystick ---
+const touch = { active: false, startX: 0, startY: 0, dx: 0, dy: 0 };
+const JOYSTICK_DEAD = 15;  // dead zone radius in screen pixels
+const JOYSTICK_MAX = 70;   // max radius for full tilt
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  if (state === STATE.TITLE || state === STATE.GAMEOVER) {
+    startGame();
+    return;
+  }
+  const t = e.changedTouches[0];
+  touch.active = true;
+  touch.startX = t.clientX;
+  touch.startY = t.clientY;
+  touch.dx = 0;
+  touch.dy = 0;
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!touch.active) return;
+  const t = e.changedTouches[0];
+  touch.dx = t.clientX - touch.startX;
+  touch.dy = t.clientY - touch.startY;
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  touch.active = false;
+  touch.dx = 0;
+  touch.dy = 0;
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+  touch.active = false;
+  touch.dx = 0;
+  touch.dy = 0;
+});
+
 // --- Game functions ---
 
 function startGame() {
@@ -362,15 +407,29 @@ function resetAfterHit() {
 
 function getPlayerInput() {
   let dx = 0, dy = 0;
+
+  // Keyboard
   if (keys['ArrowLeft'] || keys['KeyA']) dx = -1;
   if (keys['ArrowRight'] || keys['KeyD']) dx = 1;
   if (keys['ArrowUp'] || keys['KeyW']) dy = -1;
   if (keys['ArrowDown'] || keys['KeyS']) dy = 1;
-  // Normalize diagonal
-  if (dx !== 0 && dy !== 0) {
+
+  // Touch joystick (overrides keyboard if active)
+  if (touch.active) {
+    const dist = Math.hypot(touch.dx, touch.dy);
+    if (dist > JOYSTICK_DEAD) {
+      const strength = Math.min(dist, JOYSTICK_MAX) / JOYSTICK_MAX;
+      dx = (touch.dx / dist) * strength;
+      dy = (touch.dy / dist) * strength;
+    } else {
+      dx = 0; dy = 0;
+    }
+  } else if (dx !== 0 && dy !== 0) {
+    // Normalize diagonal for keyboard only
     dx *= 0.707;
     dy *= 0.707;
   }
+
   return { dx, dy };
 }
 
@@ -532,10 +591,47 @@ function draw() {
   // HUD
   drawHUD();
 
+  // Virtual joystick overlay
+  if (touch.active && state === STATE.PLAYING) {
+    drawJoystick();
+  }
+
   // Game over overlay
   if (state === STATE.GAMEOVER) {
     drawGameOver();
   }
+}
+
+function drawJoystick() {
+  // Convert screen coords to canvas coords
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  const cx = touch.startX * scaleX;
+  const cy = touch.startY * scaleY;
+  const joyR = JOYSTICK_MAX * Math.max(scaleX, scaleY);
+
+  // Base circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, joyR, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Knob
+  const dist = Math.hypot(touch.dx, touch.dy);
+  const clampDist = Math.min(dist, JOYSTICK_MAX);
+  const angle = Math.atan2(touch.dy, touch.dx);
+  const knobX = cx + Math.cos(angle) * clampDist * Math.max(scaleX, scaleY);
+  const knobY = cy + Math.sin(angle) * clampDist * Math.max(scaleX, scaleY);
+
+  ctx.beginPath();
+  ctx.arc(knobX, knobY, joyR * 0.35, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 function drawHUD() {
@@ -583,12 +679,13 @@ function drawTitle() {
 
   // Instructions
   ctx.font = '24px Courier New';
-  ctx.fillText('PRESS ENTER TO START', W / 2, H / 2 + 160);
+  ctx.fillText('PRESS ENTER OR TAP TO START', W / 2, H / 2 + 160);
 
   ctx.font = '18px Courier New';
   ctx.fillStyle = '#080';
-  ctx.fillText('ARROWS / WASD: MOVE', W / 2, H / 2 + 220);
-  ctx.fillText('SURVIVE THE ROBOTS!', W / 2, H / 2 + 250);
+  ctx.fillText('KEYBOARD: ARROWS / WASD', W / 2, H / 2 + 220);
+  ctx.fillText('MOBILE: TOUCH & DRAG TO MOVE', W / 2, H / 2 + 250);
+  ctx.fillText('SURVIVE THE ROBOTS!', W / 2, H / 2 + 280);
 
   if (highScore > 0) {
     ctx.fillStyle = '#0f0';
@@ -599,10 +696,10 @@ function drawTitle() {
   // Blink effect
   if (Math.floor(Date.now() / 500) % 2 === 0) {
     ctx.fillStyle = '#000';
-    ctx.fillRect(W / 2 - 250, H / 2 + 145, 500, 35);
+    ctx.fillRect(W / 2 - 300, H / 2 + 145, 600, 35);
     ctx.fillStyle = '#0f0';
     ctx.font = '24px Courier New';
-    ctx.fillText('PRESS ENTER TO START', W / 2, H / 2 + 160);
+    ctx.fillText('PRESS ENTER OR TAP TO START', W / 2, H / 2 + 160);
   }
 }
 
@@ -631,7 +728,7 @@ function drawGameOver() {
     ctx.fillStyle = '#0a0';
     ctx.font = '22px Courier New';
     if (Math.floor(Date.now() / 500) % 2 === 0) {
-      ctx.fillText('PRESS ENTER TO PLAY AGAIN', W / 2, H / 2 + 110);
+      ctx.fillText('PRESS ENTER OR TAP TO PLAY AGAIN', W / 2, H / 2 + 110);
     }
   }
 }
