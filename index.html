@@ -613,10 +613,20 @@ function updateRobots() {
     const dy = goalY - rcy;
     const dist = Math.hypot(dx, dy);
 
+    // Desired velocity toward goal
+    let desiredVX = 0, desiredVY = 0;
     if (dist > 2) {
-      r.x += (dx / dist) * ROBOT_SPEED;
-      r.y += (dy / dist) * ROBOT_SPEED;
+      desiredVX = (dx / dist) * ROBOT_SPEED;
+      desiredVY = (dy / dist) * ROBOT_SPEED;
     }
+
+    // Inertia: blend current velocity toward desired (lower = more slide)
+    const INERTIA = 0.06;
+    r.vx += (desiredVX - r.vx) * INERTIA;
+    r.vy += (desiredVY - r.vy) * INERTIA;
+
+    r.x += r.vx;
+    r.y += r.vy;
   });
 
   // Separation: push robots apart so they never overlap
