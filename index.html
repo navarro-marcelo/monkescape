@@ -361,113 +361,125 @@ function sfxStep() {
 function startAmbient() {
   if (!audioCtx) return;
 
-  const BPM = 140;
-  const stepTime = 60 / BPM / 4; // 16th note duration
+  const BPM = 80;
+  const beatTime = 60 / BPM;       // quarter note
+  const stepTime = beatTime / 2;    // 8th note as base tick
+  const halfNote = beatTime * 2;    // half note (mínima)
+
   const masterGain = audioCtx.createGain();
-  masterGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+  masterGain.gain.setValueAtTime(0.10, audioCtx.currentTime);
   masterGain.connect(audioCtx.destination);
 
-  // Bass line pattern (note indices into scale)
-  const bassPattern = [
-    0,0,-1,-1, 0,0,3,3, 5,5,3,3, 2,2,0,0,
-    0,0,-1,-1, 0,0,3,3, 7,7,5,5, 3,3,2,2,
-  ];
-  // Arpeggio pattern
-  const arpPattern = [
-    0,4,7,12, 0,4,7,12, 5,9,12,16, 5,9,12,16,
-    7,11,14,19, 7,11,14,19, 3,7,10,14, 2,5,9,12,
-  ];
-  // Kick drum pattern (1 = hit)
-  const kickPattern = [
-    1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0,
-    1,0,0,0, 1,0,0,1, 1,0,0,0, 1,0,1,0,
-  ];
-  // Hi-hat pattern
-  const hatPattern = [
-    0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0,
-    0,0,1,0, 0,0,1,1, 0,0,1,0, 0,1,1,0,
-  ];
+  const baseNote = 36; // C2
+  const scale = [0, 2, 3, 5, 7, 8, 10]; // natural minor
 
-  const baseNote = 36; // C2 MIDI
-  const scale = [0, 2, 3, 5, 7, 8, 10]; // minor scale intervals
-
-  function midiToFreq(midi) {
-    return 440 * Math.pow(2, (midi - 69) / 12);
+  function midiToFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  function sn(idx) {
+    const oct = Math.floor(idx / 7);
+    const deg = ((idx % 7) + 7) % 7;
+    return baseNote + oct * 12 + scale[deg];
   }
 
-  function scaleNote(idx) {
-    const octave = Math.floor(idx / 7);
-    const degree = ((idx % 7) + 7) % 7;
-    return baseNote + octave * 12 + scale[degree];
-  }
+  // --- Melody: half-note phrases with wide variation (4 sections of 8) ---
+  const melodyA = [7, 9, 11, 12, 14, 12, 11, 9];
+  const melodyB = [12, 14, 16, 14, 12, 11, 9, 7];
+  const melodyC = [5, 7, 9, 12, 11, 9, 7, 5];
+  const melodyD = [9, 11, 14, 16, 14, 11, 9, 7];
+  const melodies = [melodyA, melodyB, melodyC, melodyD];
+
+  // --- Bass: half notes, root movement ---
+  const bassA = [0, 0, 3, 3, 5, 5, 4, 4];
+  const bassB = [0, 0, 5, 5, 3, 3, 2, 2];
+  const bassC = [5, 5, 7, 7, 3, 3, 0, 0];
+  const bassD = [2, 2, 4, 4, 5, 5, 0, 0];
+  const bassLines = [bassA, bassB, bassC, bassD];
+
+  // --- Kick: on beats 1 and 3 of each half note ---
+  // 8 steps per section, kick on 0,4 each
+  const kickHits = [1,0,0,0, 1,0,0,0];
+  // Hat: offbeats
+  const hatHits =  [0,0,1,0, 0,0,1,0];
 
   let step = 0;
-  const totalSteps = bassPattern.length;
+  let section = 0;
+  const stepsPerSection = 8;
 
   function scheduleStep(time) {
-    const si = step % totalSteps;
+    const si = step % stepsPerSection;
+    const mel = melodies[section % melodies.length];
+    const bass = bassLines[section % bassLines.length];
 
-    // Bass
-    const bassNote = scaleNote(bassPattern[si]);
-    const bassOsc = audioCtx.createOscillator();
-    const bassGain = audioCtx.createGain();
-    bassOsc.type = 'square';
-    bassOsc.frequency.setValueAtTime(midiToFreq(bassNote), time);
-    bassGain.gain.setValueAtTime(0.3, time);
-    bassGain.gain.exponentialRampToValueAtTime(0.01, time + stepTime * 0.9);
-    bassOsc.connect(bassGain);
-    bassGain.connect(masterGain);
-    bassOsc.start(time);
-    bassOsc.stop(time + stepTime);
+    // Every 2 steps = one half note for melody/bass
+    const isHalfBeat = si % 2 === 0;
+    const noteIdx = Math.floor(si / 2);
 
-    // Arpeggio
-    const arpNote = scaleNote(arpPattern[si]);
-    const arpOsc = audioCtx.createOscillator();
-    const arpGain = audioCtx.createGain();
-    arpOsc.type = 'square';
-    arpOsc.frequency.setValueAtTime(midiToFreq(arpNote + 12), time);
-    arpGain.gain.setValueAtTime(0.08, time);
-    arpGain.gain.exponentialRampToValueAtTime(0.001, time + stepTime * 0.8);
-    arpOsc.connect(arpGain);
-    arpGain.connect(masterGain);
-    arpOsc.start(time);
-    arpOsc.stop(time + stepTime);
+    if (isHalfBeat) {
+      // --- Melody (triangle-like via quiet square) ---
+      const melNote = sn(mel[noteIdx]);
+      const melOsc = audioCtx.createOscillator();
+      const melGain = audioCtx.createGain();
+      melOsc.type = 'triangle';
+      melOsc.frequency.setValueAtTime(midiToFreq(melNote + 12), time);
+      melGain.gain.setValueAtTime(0.12, time);
+      melGain.gain.setValueAtTime(0.10, time + halfNote * 0.3);
+      melGain.gain.exponentialRampToValueAtTime(0.001, time + halfNote * 0.95);
+      melOsc.connect(melGain);
+      melGain.connect(masterGain);
+      melOsc.start(time);
+      melOsc.stop(time + halfNote);
 
-    // Kick drum (low freq burst)
-    if (kickPattern[si]) {
-      const kickOsc = audioCtx.createOscillator();
-      const kickGain = audioCtx.createGain();
-      kickOsc.type = 'sine';
-      kickOsc.frequency.setValueAtTime(150, time);
-      kickOsc.frequency.exponentialRampToValueAtTime(30, time + 0.08);
-      kickGain.gain.setValueAtTime(0.4, time);
-      kickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-      kickOsc.connect(kickGain);
-      kickGain.connect(masterGain);
-      kickOsc.start(time);
-      kickOsc.stop(time + 0.12);
+      // --- Bass (square, sustained) ---
+      const bassNote = sn(bass[noteIdx]);
+      const bassOsc = audioCtx.createOscillator();
+      const bassGain = audioCtx.createGain();
+      bassOsc.type = 'square';
+      bassOsc.frequency.setValueAtTime(midiToFreq(bassNote), time);
+      bassGain.gain.setValueAtTime(0.20, time);
+      bassGain.gain.exponentialRampToValueAtTime(0.02, time + halfNote * 0.9);
+      bassOsc.connect(bassGain);
+      bassGain.connect(masterGain);
+      bassOsc.start(time);
+      bassOsc.stop(time + halfNote);
     }
 
-    // Hi-hat (noise burst via high-freq oscillator)
-    if (hatPattern[si]) {
-      const hatOsc = audioCtx.createOscillator();
-      const hatGain = audioCtx.createGain();
-      hatOsc.type = 'square';
-      hatOsc.frequency.setValueAtTime(6000 + Math.random() * 2000, time);
-      hatGain.gain.setValueAtTime(0.06, time);
-      hatGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
-      hatOsc.connect(hatGain);
-      hatGain.connect(masterGain);
-      hatOsc.start(time);
-      hatOsc.stop(time + 0.05);
+    // --- Kick ---
+    if (kickHits[si]) {
+      const kOsc = audioCtx.createOscillator();
+      const kGain = audioCtx.createGain();
+      kOsc.type = 'sine';
+      kOsc.frequency.setValueAtTime(120, time);
+      kOsc.frequency.exponentialRampToValueAtTime(25, time + 0.12);
+      kGain.gain.setValueAtTime(0.3, time);
+      kGain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      kOsc.connect(kGain);
+      kGain.connect(masterGain);
+      kOsc.start(time);
+      kOsc.stop(time + 0.18);
+    }
+
+    // --- Hi-hat ---
+    if (hatHits[si]) {
+      const hOsc = audioCtx.createOscillator();
+      const hGain = audioCtx.createGain();
+      hOsc.type = 'square';
+      hOsc.frequency.setValueAtTime(5000 + Math.random() * 3000, time);
+      hGain.gain.setValueAtTime(0.04, time);
+      hGain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      hOsc.connect(hGain);
+      hGain.connect(masterGain);
+      hOsc.start(time);
+      hOsc.stop(time + 0.06);
     }
 
     step++;
+    // Advance section every 8 steps
+    if (step % stepsPerSection === 0) {
+      section++;
+    }
   }
 
-  // Schedule ahead in chunks
   let nextStepTime = audioCtx.currentTime + 0.1;
-  const scheduleAhead = 0.2; // seconds to schedule ahead
+  const scheduleAhead = 0.3;
 
   function scheduler() {
     while (nextStepTime < audioCtx.currentTime + scheduleAhead) {
@@ -477,7 +489,7 @@ function startAmbient() {
   }
 
   const intervalId = setInterval(scheduler, 50);
-  scheduler(); // kick off immediately
+  scheduler();
 
   return { masterGain, intervalId };
 }
