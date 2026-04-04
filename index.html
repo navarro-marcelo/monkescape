@@ -523,6 +523,15 @@ function startGame() {
   corners.forEach(c => robots.push({ x: c.x, y: c.y, vx: 0, vy: 0 }));
 }
 
+function spawnBanana() {
+  banana = {
+    x: ARENA.x + 60 + Math.random() * (ARENA.w - 120 - BANANA_W),
+    y: ARENA.y + 60 + Math.random() * (ARENA.h - 120 - BANANA_H),
+    timer: BANANA_DURATION,
+  };
+  playTone(520, 0.1, 'square', 0.08);
+}
+
 function resetAfterHit() {
   // Move player to center
   player.x = ARENA.x + ARENA.w / 2 - CHIMP_W / 2;
@@ -807,15 +816,7 @@ function update() {
 
     // Banana spawn: only when 1 life left and no banana on screen
     if (lives === 1 && !banana) {
-      // Random chance each frame (~once every 5 seconds on average)
-      if (Math.random() < 1 / 300) {
-        banana = {
-          x: ARENA.x + 60 + Math.random() * (ARENA.w - 120 - BANANA_W),
-          y: ARENA.y + 60 + Math.random() * (ARENA.h - 120 - BANANA_H),
-          timer: BANANA_DURATION,
-        };
-        playTone(520, 0.1, 'square', 0.08);
-      }
+      spawnBanana();
     }
 
     // Banana update
