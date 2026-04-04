@@ -249,6 +249,25 @@ const ROBOT_SPRITE = [
   "..1111....1111..",
 ];
 
+const BANANA_SPRITE = [
+  "................",
+  "...........11...",
+  "..........11....",
+  ".........11.....",
+  "........11......",
+  ".......11.......",
+  "......111.......",
+  ".....1111.......",
+  ".....1111.......",
+  "......1111......",
+  "......11111.....",
+  ".......11111....",
+  "........1111....",
+  ".........111....",
+  "..........1.....",
+  "................",
+];
+
 // Chimp sprite: 32x24, rendered size
 const CHIMP_W = 32 * SP;
 const CHIMP_H = 32 * SP;
@@ -288,6 +307,10 @@ const chimpFramesL = chimpFramesR.map(c => {
 });
 const robotImg = prerenderSprite(ROBOT_SPRITE, SP, '#0f0');
 const robotEnragedImg = prerenderSprite(ROBOT_SPRITE, SP, '#8f8');
+const bananaImg = prerenderSprite(BANANA_SPRITE, SP, '#0f0');
+const bananaDimImg = prerenderSprite(BANANA_SPRITE, SP, '#080');
+const BANANA_W = 16 * SP;
+const BANANA_H = 16 * SP;
 
 // --- Sound engine (Web Audio API) ---
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -358,6 +381,11 @@ let scoreTimer = 0;
 let hitTimer = 0;
 let gameOverTimer = 0;
 let ambient = null;
+
+// Banana power-up
+const BANANA_DURATION = 300; // 5 seconds at 60fps
+const BANANA_BLINK = 180;   // start blinking at 3 seconds remaining (2s left)
+let banana = null; // { x, y, timer }
 
 // Arena bounds (inside border)
 const ARENA = { x: 8, y: HUD_H + 8, w: W - 16, h: H - HUD_H - 16 };
@@ -777,6 +805,40 @@ function update() {
       }
     }
 
+    // Banana spawn: only when 1 life left and no banana on screen
+    if (lives === 1 && !banana) {
+      // Random chance each frame (~once every 5 seconds on average)
+      if (Math.random() < 1 / 300) {
+        banana = {
+          x: ARENA.x + 60 + Math.random() * (ARENA.w - 120 - BANANA_W),
+          y: ARENA.y + 60 + Math.random() * (ARENA.h - 120 - BANANA_H),
+          timer: BANANA_DURATION,
+        };
+        playTone(520, 0.1, 'square', 0.08);
+      }
+    }
+
+    // Banana update
+    if (banana) {
+      banana.timer--;
+      if (banana.timer <= 0) {
+        banana = null; // expired
+      } else {
+        // Check player pickup
+        const bx = banana.x, by = banana.y;
+        const px = player.x + CHIMP_HB.x, py = player.y + CHIMP_HB.y;
+        if (px < bx + BANANA_W && px + CHIMP_HB.w > bx &&
+            py < by + BANANA_H && py + CHIMP_HB.h > by) {
+          lives = Math.min(lives + 1, 3);
+          banana = null;
+          // Pickup sound
+          playTone(440, 0.08, 'square', 0.1);
+          setTimeout(() => playTone(660, 0.08, 'square', 0.1), 80);
+          setTimeout(() => playTone(880, 0.1, 'square', 0.1), 160);
+        }
+      }
+    }
+
   } else if (state === STATE.HIT) {
     hitTimer++;
     if (hitTimer > 90) { // 1.5s pause
@@ -813,6 +875,16 @@ function draw() {
       ? robotEnragedImg : robotImg;
     ctx.drawImage(img, Math.round(r.x), Math.round(r.y));
   });
+
+  // Draw banana
+  if (banana) {
+    const blinking = banana.timer < BANANA_BLINK;
+    const visible = !blinking || Math.floor(Date.now() / 150) % 2 === 0;
+    if (visible) {
+      const img = blinking ? bananaDimImg : bananaImg;
+      ctx.drawImage(img, Math.round(banana.x), Math.round(banana.y));
+    }
+  }
 
   // Draw player
   if (state === STATE.HIT && Math.floor(hitTimer / 6) % 2 === 0) {
