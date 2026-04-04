@@ -357,18 +357,129 @@ function sfxStep() {
   playTone(60 + Math.random() * 40, 0.03, 'square', 0.02);
 }
 
-// --- Noise generator for ambient hum ---
+// --- Background music (procedural chiptune) ---
 function startAmbient() {
   if (!audioCtx) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(55, audioCtx.currentTime);
-  gain.gain.setValueAtTime(0.008, audioCtx.currentTime);
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start();
-  return { osc, gain };
+
+  const BPM = 140;
+  const stepTime = 60 / BPM / 4; // 16th note duration
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+  masterGain.connect(audioCtx.destination);
+
+  // Bass line pattern (note indices into scale)
+  const bassPattern = [
+    0,0,-1,-1, 0,0,3,3, 5,5,3,3, 2,2,0,0,
+    0,0,-1,-1, 0,0,3,3, 7,7,5,5, 3,3,2,2,
+  ];
+  // Arpeggio pattern
+  const arpPattern = [
+    0,4,7,12, 0,4,7,12, 5,9,12,16, 5,9,12,16,
+    7,11,14,19, 7,11,14,19, 3,7,10,14, 2,5,9,12,
+  ];
+  // Kick drum pattern (1 = hit)
+  const kickPattern = [
+    1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0,
+    1,0,0,0, 1,0,0,1, 1,0,0,0, 1,0,1,0,
+  ];
+  // Hi-hat pattern
+  const hatPattern = [
+    0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0,
+    0,0,1,0, 0,0,1,1, 0,0,1,0, 0,1,1,0,
+  ];
+
+  const baseNote = 36; // C2 MIDI
+  const scale = [0, 2, 3, 5, 7, 8, 10]; // minor scale intervals
+
+  function midiToFreq(midi) {
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  function scaleNote(idx) {
+    const octave = Math.floor(idx / 7);
+    const degree = ((idx % 7) + 7) % 7;
+    return baseNote + octave * 12 + scale[degree];
+  }
+
+  let step = 0;
+  const totalSteps = bassPattern.length;
+
+  function scheduleStep(time) {
+    const si = step % totalSteps;
+
+    // Bass
+    const bassNote = scaleNote(bassPattern[si]);
+    const bassOsc = audioCtx.createOscillator();
+    const bassGain = audioCtx.createGain();
+    bassOsc.type = 'square';
+    bassOsc.frequency.setValueAtTime(midiToFreq(bassNote), time);
+    bassGain.gain.setValueAtTime(0.3, time);
+    bassGain.gain.exponentialRampToValueAtTime(0.01, time + stepTime * 0.9);
+    bassOsc.connect(bassGain);
+    bassGain.connect(masterGain);
+    bassOsc.start(time);
+    bassOsc.stop(time + stepTime);
+
+    // Arpeggio
+    const arpNote = scaleNote(arpPattern[si]);
+    const arpOsc = audioCtx.createOscillator();
+    const arpGain = audioCtx.createGain();
+    arpOsc.type = 'square';
+    arpOsc.frequency.setValueAtTime(midiToFreq(arpNote + 12), time);
+    arpGain.gain.setValueAtTime(0.08, time);
+    arpGain.gain.exponentialRampToValueAtTime(0.001, time + stepTime * 0.8);
+    arpOsc.connect(arpGain);
+    arpGain.connect(masterGain);
+    arpOsc.start(time);
+    arpOsc.stop(time + stepTime);
+
+    // Kick drum (low freq burst)
+    if (kickPattern[si]) {
+      const kickOsc = audioCtx.createOscillator();
+      const kickGain = audioCtx.createGain();
+      kickOsc.type = 'sine';
+      kickOsc.frequency.setValueAtTime(150, time);
+      kickOsc.frequency.exponentialRampToValueAtTime(30, time + 0.08);
+      kickGain.gain.setValueAtTime(0.4, time);
+      kickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+      kickOsc.connect(kickGain);
+      kickGain.connect(masterGain);
+      kickOsc.start(time);
+      kickOsc.stop(time + 0.12);
+    }
+
+    // Hi-hat (noise burst via high-freq oscillator)
+    if (hatPattern[si]) {
+      const hatOsc = audioCtx.createOscillator();
+      const hatGain = audioCtx.createGain();
+      hatOsc.type = 'square';
+      hatOsc.frequency.setValueAtTime(6000 + Math.random() * 2000, time);
+      hatGain.gain.setValueAtTime(0.06, time);
+      hatGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+      hatOsc.connect(hatGain);
+      hatGain.connect(masterGain);
+      hatOsc.start(time);
+      hatOsc.stop(time + 0.05);
+    }
+
+    step++;
+  }
+
+  // Schedule ahead in chunks
+  let nextStepTime = audioCtx.currentTime + 0.1;
+  const scheduleAhead = 0.2; // seconds to schedule ahead
+
+  function scheduler() {
+    while (nextStepTime < audioCtx.currentTime + scheduleAhead) {
+      scheduleStep(nextStepTime);
+      nextStepTime += stepTime;
+    }
+  }
+
+  const intervalId = setInterval(scheduler, 50);
+  scheduler(); // kick off immediately
+
+  return { masterGain, intervalId };
 }
 
 // --- Game state ---
