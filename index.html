@@ -287,6 +287,7 @@ const chimpFramesL = chimpFramesR.map(c => {
   return mc;
 });
 const robotImg = prerenderSprite(ROBOT_SPRITE, SP, '#0f0');
+const robotEnragedImg = prerenderSprite(ROBOT_SPRITE, SP, '#8f8');
 
 // --- Sound engine (Web Audio API) ---
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -550,6 +551,10 @@ function clamp(v, min, max) { return v < min ? min : v > max ? max : v; }
 const MIN_ROBOT_DIST = ROBOT_W + 10; // minimum distance between robots
 let attackerIdx = 0;    // which robot is the designated attacker
 let attackerTimer = 0;  // frames until re-evaluation
+let enragedIdx = -1;    // which robot is temporarily boosted
+let enragedTimer = 0;   // frames remaining for boost
+const ENRAGE_DURATION = 600; // ~10 seconds at 60fps
+const ENRAGE_BOOST = 1.5;    // 50% speed boost
 
 function updateRobots() {
   const pcx = player.x + CHIMP_W / 2;
@@ -654,7 +659,8 @@ function updateRobots() {
     const dist = Math.hypot(dx, dy);
 
     // Desired velocity toward goal (5% faster per level)
-    const robotSpeed = ROBOT_BASE_SPEED * Math.pow(1.10, level - 1);
+    let robotSpeed = ROBOT_BASE_SPEED * Math.pow(1.10, level - 1);
+    if (i === enragedIdx && enragedTimer > 0) robotSpeed *= ENRAGE_BOOST;
     let desiredVX = 0, desiredVY = 0;
     if (dist > 2) {
       desiredVX = (dx / dist) * robotSpeed;
@@ -691,6 +697,9 @@ function updateRobots() {
       }
     }
   }
+
+  // Decrement enrage timer
+  if (enragedTimer > 0) enragedTimer--;
 
   // Clamp to arena
   robots.forEach(r => {
@@ -762,6 +771,9 @@ function update() {
         level = newLevel;
         playTone(660, 0.15, 'square', 0.1);
         setTimeout(() => playTone(880, 0.2, 'square', 0.1), 150);
+        // Enrage a random robot for 10 seconds
+        enragedIdx = Math.floor(Math.random() * robots.length);
+        enragedTimer = ENRAGE_DURATION;
       }
     }
 
@@ -794,8 +806,12 @@ function draw() {
   ctx.strokeRect(ARENA.x - 2, ARENA.y - 2, ARENA.w + 4, ARENA.h + 4);
 
   // Draw robots
-  robots.forEach(r => {
-    ctx.drawImage(robotImg, Math.round(r.x), Math.round(r.y));
+  robots.forEach((r, i) => {
+    const isEnraged = i === enragedIdx && enragedTimer > 0;
+    // Enraged robot blinks between bright and normal
+    const img = isEnraged && Math.floor(Date.now() / 100) % 2 === 0
+      ? robotEnragedImg : robotImg;
+    ctx.drawImage(img, Math.round(r.x), Math.round(r.y));
   });
 
   // Draw player
